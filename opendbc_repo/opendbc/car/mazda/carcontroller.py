@@ -152,21 +152,24 @@ class CarController(CarControllerBase):
 
 
     # send steering command
-    # TI2 firmware ignores STEER_FEEL == 0 (treats 0 as unset/default 10000 = 1.0x gain).
-    # Use a positive sub-unity STEER_FEEL (5000 = 0.50x gain) below 1.5 m/s (~3.4 mph)
-    # and smoothly ramp up to 10000 (1.0x gain) by 2.2 m/s (~5 mph) to prevent
-    # low-speed EPS limit-cycle oscillation while keeping light steering when driving.
+    # TI2 firmware ignores STEER_FEEL == 0 (treats 0 as unset/default 10000 = 1.0x gain),
+    # and 5000 (0.50x gain) still allows 50 Hz dry-steering oscillation under heavy load.
+    # Use 1500 (0.15x gain) + LKA_DISABLED=1 below 1.5 m/s (~3.4 mph) and smoothly ramp
+    # up to 10000 (1.0x gain) by 2.2 m/s (~5 mph).
     if lat_active or CS.out.vEgo >= 2.2:
       steer_feel = 10000
+      lka_disabled = 0
     elif CS.out.vEgo <= 1.5:
-      steer_feel = 5000
+      steer_feel = 1500
+      lka_disabled = 1
     else:
-      steer_feel = int(round(5000 + (CS.out.vEgo - 1.5) / (2.2 - 1.5) * 5000))
+      steer_feel = int(round(1500 + (CS.out.vEgo - 1.5) / (2.2 - 1.5) * 8500))
+      lka_disabled = 1
 
     can_sends.extend(mazdacan.create_steering_control(
       self.packer, self.CP, self.frame, apply_torque, CS.cam_lkas,
       ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None,
-      steer_feel=steer_feel))
+      steer_feel=steer_feel, lka_disabled=lka_disabled))
 
     new_actuators = CC.actuators.as_builder()
     new_actuators.torque = apply_torque / self.ccp.STEER_MAX

@@ -198,8 +198,11 @@ class Car:
     # Write CarParams for controls and radard
     cp_bytes = self.CP.to_bytes()
     self.params.put("CarParams", cp_bytes)
-    self.params.put_nonblocking("CarParamsCache", cp_bytes)
-    self.params.put_nonblocking("CarParamsPersistent", cp_bytes)
+    if self.CP.brand != "mock":
+      self.params.put_nonblocking("CarParamsCache", cp_bytes)
+      self.params.put_nonblocking("CarParamsPersistent", cp_bytes)
+    elif prev_cp is None:
+      self.params.put_nonblocking("CarParamsPersistent", cp_bytes)
 
     self.mock_carstate = MockCarState()
     self.v_cruise_helper = VCruiseHelper(self.CP, self.FPCP)

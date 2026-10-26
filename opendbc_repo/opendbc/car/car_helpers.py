@@ -235,7 +235,7 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
   start_time = time.monotonic()
   if not skip_fw_query:
     if cached_params is not None and cached_params.brand != "mock" and len(cached_params.carFw) > 0 and \
-       cached_params.carVin is not VIN_UNKNOWN and not disable_fw_cache:
+       cached_params.carVin != VIN_UNKNOWN and not disable_fw_cache:
       carlog.warning("Using cached CarParams")
       vin_rx_addr, vin_rx_bus, vin = -1, -1, cached_params.carVin
       car_fw = list(cached_params.carFw)
@@ -286,6 +286,13 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
     source = CarParams.FingerprintSource.fw
     exact_match = exact_fw_match
 
+  if car_fingerprint is None and cached_params is not None and cached_params.brand != "mock" and \
+     cached_params.carFingerprint in interfaces and not disable_fw_cache:
+    carlog.warning("Preserving cached CarParams carFingerprint %s", cached_params.carFingerprint)
+    car_fingerprint = cached_params.carFingerprint
+    source = CarParams.FingerprintSource.fw
+    cached = True
+
   if fixed_fingerprint:
     car_fingerprint = fixed_fingerprint
     source = CarParams.FingerprintSource.fixed
@@ -317,6 +324,12 @@ def get_car(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_multip
         "cached_candidate": cached_candidate,
       })
       candidate = gm_fallback_candidate
+    else:
+      for fallback in (cached_candidate, stored_candidate):
+        if isinstance(fallback, str) and fallback.startswith("MAZDA_") and fallback in interfaces:
+          carlog.warning("Reusing stored/cached Mazda candidate %s", fallback)
+          candidate = fallback
+          break
 
   if candidate is None or starpilot_toggles.force_fingerprint:
     if starpilot_toggles.force_fingerprint:
