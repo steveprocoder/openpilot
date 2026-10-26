@@ -126,7 +126,8 @@ class CarInterface(CarInterfaceBase):
       ret.longitudinalTuning.kiBP = [0., 35.]
       ret.longitudinalTuning.kiV = [0.1, 0.1]
       ret.startingState = True
-      ret.steerAtStandstill = True
+      ret.minSteerSpeed = 2.2
+      ret.steerAtStandstill = False
       ret.enableBsm = False
 
     if candidate in GEN3:
