@@ -36,7 +36,9 @@ class CarController(CarControllerBase):
     apply_torque = 0
     ti_apply_torque = 0
 
-    if CC.latActive:
+    lat_active = CC.latActive and (CS.out.vEgo >= 2.2)
+
+    if lat_active:
       # calculate steer and also set limits due to driver torque
       new_torque = int(round(CC.actuators.torque * self.ccp.STEER_MAX))
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
@@ -150,9 +152,21 @@ class CarController(CarControllerBase):
 
 
     # send steering command
+    # TI2 firmware ignores STEER_FEEL == 0 (treats 0 as unset/default 10000 = 1.0x gain).
+    # Use a positive sub-unity STEER_FEEL (5000 = 0.50x gain) below 1.5 m/s (~3.4 mph)
+    # and smoothly ramp up to 10000 (1.0x gain) by 2.2 m/s (~5 mph) to prevent
+    # low-speed EPS limit-cycle oscillation while keeping light steering when driving.
+    if lat_active or CS.out.vEgo >= 2.2:
+      steer_feel = 10000
+    elif CS.out.vEgo <= 1.5:
+      steer_feel = 5000
+    else:
+      steer_feel = int(round(5000 + (CS.out.vEgo - 1.5) / (2.2 - 1.5) * 5000))
+
     can_sends.extend(mazdacan.create_steering_control(
       self.packer, self.CP, self.frame, apply_torque, CS.cam_lkas,
-      ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None))
+      ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None,
+      steer_feel=steer_feel))
 
     new_actuators = CC.actuators.as_builder()
     new_actuators.torque = apply_torque / self.ccp.STEER_MAX
