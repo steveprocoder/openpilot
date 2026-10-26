@@ -35,9 +35,8 @@ class CarController(CarControllerBase):
 
     apply_torque = 0
     ti_apply_torque = 0
-    ti_active = CC.latActive and (CS.out.vEgo >= 2.2)
 
-    if ti_active:
+    if CC.latActive:
       # calculate steer and also set limits due to driver torque
       new_torque = int(round(CC.actuators.torque * self.ccp.STEER_MAX))
       apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last,
@@ -153,8 +152,7 @@ class CarController(CarControllerBase):
     # send steering command
     can_sends.extend(mazdacan.create_steering_control(
       self.packer, self.CP, self.frame, apply_torque, CS.cam_lkas,
-      ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None,
-      ti_active))
+      ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None))
 
     new_actuators = CC.actuators.as_builder()
     new_actuators.torque = apply_torque / self.ccp.STEER_MAX
