@@ -184,6 +184,9 @@ class CarState(CarStateBase):
 
     ret.steeringTorque = cp_body.vl["TI_FEEDBACK"]["STEER_TORQUE_SENSOR"]
     ret.steeringPressed = abs(ret.steeringTorque) > self.params.STEER_DRIVER_ALLOWANCE
+    self.ti_state = int(cp_body.vl["TI_FEEDBACK"]["CPU_0_STATE"])
+    self.ti_violation = int(cp_body.vl["TI_FEEDBACK"]["CPU_0_VIOL"] or cp_body.vl["TI_FEEDBACK"]["CPU_1_VIOL"] or cp_body.vl["TI_FEEDBACK"]["CPU_2_VIOL"] or cp_body.vl["TI_FEEDBACK"]["CPU_3_VIOL"])
+    self.ti_lkas_allowed = (self.ti_violation == 0 and self.ti_state == TI_STATE.RUN)
 
     if self.CP.flags & MazdaSafetyFlags.MANUAL_TRANSMISSION:
       can_gear = int(cp_cam.vl["MANUAL_GEAR"]["GEAR"])

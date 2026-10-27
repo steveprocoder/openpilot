@@ -25,6 +25,7 @@ class CarController(CarControllerBase):
     self.acc_filter = FirstOrderFilter(0.0, .1, DT_CTRL, initialized=False)
     self.filtered_acc_last = 0
     self.long_active_last = False
+    self.ti_init_frames = 150
     self.params = Params()
     self.params_memory = Params("/dev/shm/params")
 
@@ -36,7 +37,12 @@ class CarController(CarControllerBase):
     apply_torque = 0
     ti_apply_torque = 0
 
-    lat_active = CC.latActive and (CS.out.vEgo >= 2.2)
+    if getattr(CS, "ti_violation", 0) != 0 or getattr(CS, "ti_state", 3) != 3:
+      self.ti_init_frames = 150
+    elif self.ti_init_frames > 0:
+      self.ti_init_frames -= 1
+    ti_initializing = self.ti_init_frames > 0
+    lat_active = CC.latActive and (CS.out.vEgo >= 2.2) and not ti_initializing
 
     if lat_active:
       # calculate steer and also set limits due to driver torque
@@ -156,7 +162,10 @@ class CarController(CarControllerBase):
     # and 5000 (0.50x gain) still allows 50 Hz dry-steering oscillation under heavy load.
     # Use 1500 (0.15x gain) + LKA_DISABLED=1 below 1.5 m/s (~3.4 mph) and smoothly ramp
     # up to 10000 (1.0x gain) by 2.2 m/s (~5 mph).
-    if lat_active or CS.out.vEgo >= 2.2:
+    if ti_initializing:
+      steer_feel = 1500
+      lka_disabled = 1
+    elif lat_active or CS.out.vEgo >= 2.2:
       steer_feel = 10000
       lka_disabled = 0
     elif CS.out.vEgo <= 1.5:

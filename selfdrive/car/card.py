@@ -122,7 +122,7 @@ class Car:
       num_pandas = len(messaging.recv_one_retry(self.sm.sock['pandaStates']).pandaStates)
 
       cached_params = None
-      cached_params_raw = self.params.get("CarParamsCache")
+      cached_params_raw = self.params.get("CarParamsCache") or self.params.get("CarParamsPersistent")
       if cached_params_raw is not None:
         with car.CarParams.from_bytes(cached_params_raw) as _cached_params:
           cached_params = _cached_params
