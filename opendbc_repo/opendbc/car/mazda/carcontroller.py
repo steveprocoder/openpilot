@@ -11,6 +11,9 @@ from openpilot.common.params import Params
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
 
+TI_QUIET_ENTER_SPEED = 2.0  # m/s (~4.5 mph): stop sending 0x249 below this
+TI_QUIET_EXIT_SPEED = 2.4   # m/s (~5.4 mph): resume sending 0x249 above this
+
 class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
     super().__init__(dbc_names, CP)
@@ -26,22 +29,11 @@ class CarController(CarControllerBase):
     self.filtered_acc_last = 0
     self.long_active_last = False
     self.ti_init_frames = 150
-    self.ti_reset_pending = True   # force one clean TI2 re-handshake every time controls start
-    self.ti_reset_frames = 0
-    self.ti_reset_last_frame = -1000
-    self.steer_torque_prev = 0
-    self.osc_score = 0
+    self.ti_quiet = True  # start quiet: TI2 behaves like "comma unplugged" (heavy, no vibration)
     self.params = Params()
     self.params_memory = Params("/dev/shm/params")
 
 
-
-  def _start_ti_reset(self):
-    # Withhold 0x249 for up to 2 s (ends early once the TI2 reports a timeout violation)
-    self.ti_reset_pending = False
-    self.ti_reset_frames = 200
-    self.ti_reset_last_frame = self.frame
-    self.osc_score = 0
 
   def update(self, CC, CS, now_nanos, starpilot_toggles):
     can_sends = []
@@ -49,43 +41,30 @@ class CarController(CarControllerBase):
     apply_torque = 0
     ti_apply_torque = 0
 
-    ti_violation = getattr(CS, "ti_violation", 0)
-    ti_running = getattr(CS, "ti_state", 0) == 3 and ti_violation == 0
+    ti_running = getattr(CS, "ti_state", 0) == 3 and getattr(CS, "ti_violation", 0) == 0
 
-    # --- TI2 forced re-handshake ---------------------------------------------
-    # The TI2 sometimes ignores STEER_FEEL after boot and stays in its lightest
-    # (vibrating) mode. The only state we KNOW is good is the TI2's default state
-    # with no 0x249 traffic (comma off). So: on startup, and whenever we detect
-    # the 50 Hz low-speed oscillation, stop sending 0x249 until the TI2 reports a
-    # timeout violation (= it has reset), then resume with low-gain STEER_FEEL.
-    if self.ti_reset_pending and ti_running:
-      self._start_ti_reset()
+    # --- TI2 low-speed quiet mode -------------------------------------------
+    # Logs show the 50 Hz dry-steer oscillation only starts once 0x249 is being sent,
+    # and STEER_FEEL (1500/5000/10000) makes no difference to it. With no 0x249
+    # (same as comma unplugged) the TI2 passes the stock heavy feel through with no
+    # vibration. So below ~5 mph send nothing (torque was never applied there anyway).
+    # Hysteresis avoids toggling around the threshold.
+    if self.ti_quiet:
+      if CS.out.vEgo > TI_QUIET_EXIT_SPEED:
+        self.ti_quiet = False
+    elif CS.out.vEgo < TI_QUIET_ENTER_SPEED:
+      self.ti_quiet = True
 
-    # Vibration detector: large frame-to-frame swings in driver torque at low speed
-    # while openpilot is NOT steering (vibration.zst showed ~5000-count swings every 10 ms).
-    torque_delta = abs(CS.out.steeringTorque - self.steer_torque_prev)
-    self.steer_torque_prev = CS.out.steeringTorque
-    self.osc_score = max(0, self.osc_score + (2 if torque_delta > 2500 else -1))
-    if (self.osc_score > 20 and CS.out.vEgo < 2.2 and not CC.latActive and
-        self.ti_reset_frames == 0 and (self.frame - self.ti_reset_last_frame) > 300):
-      self._start_ti_reset()
-
-    ti_resetting = self.ti_reset_frames > 0
-    if ti_resetting:
-      self.ti_reset_frames -= 1
-      # end the pause early once the TI2 confirms it timed out (default state)
-      if ti_violation != 0 and self.ti_reset_frames < 150:
-        self.ti_reset_frames = 0
-
-    if ti_resetting or not ti_running:
+    # Hold off torque until the TI2 has reported RUN with no violation for 1.5 s
+    # (it reports a timeout violation after every quiet period and needs time to clear).
+    if self.ti_quiet or not ti_running:
       self.ti_init_frames = 150
     elif self.ti_init_frames > 0:
       self.ti_init_frames -= 1
     ti_initializing = self.ti_init_frames > 0
 
-    # Torque is ONLY sent while openpilot lateral is engaged (aqua / green border).
-    # Grey border (disengaged) => LKAS_REQUEST is always 0; only STEER_FEEL is sent.
-    lat_active = CC.latActive and (CS.out.vEgo >= 2.2) and not ti_initializing and not ti_resetting
+    # Torque is only sent while openpilot lateral is engaged (aqua / green border).
+    lat_active = CC.latActive and not self.ti_quiet and not ti_initializing
 
     if lat_active:
       # calculate steer and also set limits due to driver torque
@@ -200,30 +179,11 @@ class CarController(CarControllerBase):
         can_sends.append(mazdacan.create_acc_cmd(self.packer, CS.acc, hold, resume))
 
 
-    # send steering command
-    # TI2 firmware ignores STEER_FEEL == 0 (treats 0 as unset/default 10000 = 1.0x gain),
-    # and 5000 (0.50x gain) still allows 50 Hz dry-steering oscillation under heavy load.
-    # Use 1500 (0.15x gain) + LKA_DISABLED=1 below 1.5 m/s (~3.4 mph) and smoothly ramp
-    # up to 10000 (1.0x gain) by 2.2 m/s (~5 mph).
-    if ti_initializing:
-      steer_feel = 1500
-      lka_disabled = 1
-    elif lat_active or CS.out.vEgo >= 2.2:
-      steer_feel = 10000
-      lka_disabled = 0
-    elif CS.out.vEgo <= 1.5:
-      steer_feel = 1500
-      lka_disabled = 1
-    else:
-      steer_feel = int(round(1500 + (CS.out.vEgo - 1.5) / (2.2 - 1.5) * 8500))
-      lka_disabled = 1
-
-    # While re-handshaking, send NOTHING to the TI2 so it falls back to its default state.
-    if not ti_resetting:
+    # send steering command (nothing at all while quiet, see above)
+    if not self.ti_quiet:
       can_sends.extend(mazdacan.create_steering_control(
         self.packer, self.CP, self.frame, apply_torque, CS.cam_lkas,
-        ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None,
-        steer_feel=steer_feel, lka_disabled=lka_disabled))
+        ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None))
 
     new_actuators = CC.actuators.as_builder()
     new_actuators.torque = apply_torque / self.ccp.STEER_MAX
