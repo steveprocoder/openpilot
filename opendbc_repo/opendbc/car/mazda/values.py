@@ -71,6 +71,12 @@ class TI_STATE:
 # controlsMismatch. At <= 100 the release lands 80-330 ms before the 0.
 GEN2_STEER_RELEASE_SPEED_RAW = 100
 
+# TI2 first contact. After every TI2 power-up (each engine start), openpilot sends the TI2
+# nothing until the car first reaches this speed. After that first contact it talks to the TI2
+# normally at any speed, including below this one. Set to 0 to talk from the moment openpilot starts.
+# While waiting, a temporary "steering unavailable" alert shows and lateral control is off.
+TI2_FIRST_CONTACT_SPEED_MPH = 10.
+
 
 class TI2_HEALTH:
   """GEN2 TI2 health model shared with panda (safety/modes/mazda.h).

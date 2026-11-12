@@ -74,14 +74,16 @@ def gen2_configuration(cp, *, marked_only=False):
   (only GEN1 sets TORQUE_INTERCEPTOR), so "verified TI2 hardware" is proven at
   runtime by the fault contract instead of here.
 
-  Automatic only, per the specification's initial scope. Openpilot longitudinal
+  Automatic or manual (the owner's GEN2 car is manual; MANUAL_TRANSMISSION only
+  changes host-side gear parsing, not the panda safety param). Openpilot longitudinal
   is allowed: the profile grants lateral and leaves the longitudinal axis to
   whatever is independently authorized (stock, openpilot or BlendedACC).
   """
   return (cp.brand == "mazda" and cp.carFingerprint in GEN2_CARS and
-          int(cp.flags) == int(MazdaSafetyFlags.GEN2) and
+          (int(cp.flags) & ~int(MazdaSafetyFlags.MANUAL_TRANSMISSION)) == int(MazdaSafetyFlags.GEN2) and
           not cp.passive and not cp.notCar and not cp.dashcamOnly and
-          cp.transmissionType == structs.CarParams.TransmissionType.automatic and
+          cp.transmissionType in (structs.CarParams.TransmissionType.automatic,
+                                  structs.CarParams.TransmissionType.manual) and
           cp.fingerprintSource != structs.CarParams.FingerprintSource.fixed and
           cp.pcmCruise and _only_safety_config_is(cp, GEN2_AOL_SAFETY_PARAM) and
           cp.alternativeExperience in ((32,) if marked_only else (0, 32)))
