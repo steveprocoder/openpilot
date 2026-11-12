@@ -81,16 +81,23 @@ def test_alternative_experience_bit_is_required_by_the_marked_query_only():
   assert not gen2_configuration(make_cp(alternative_experience=8))
 
 
+def test_gen2_configuration_admits_manual_transmission():
+  # Manual GEN2 cars carry MANUAL_TRANSMISSION in flags (host gear parsing only);
+  # the panda safety param is still exactly GEN2.
+  cp = make_cp(flags=int(MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.MANUAL_TRANSMISSION))
+  cp.transmissionType = structs.CarParams.TransmissionType.manual
+  assert gen2_configuration(cp)
+  assert gen2_qualified(cp, CLOSED_GATES)
+
+
 @pytest.mark.parametrize("change", (
-  "manual_transmission", "unknown_transmission", "direct_transmission", "cvt_transmission",
+  "unknown_transmission", "direct_transmission", "cvt_transmission",
   "passive", "not_car", "dashcam_only", "fixed_fingerprint", "no_pcm_cruise",
   "two_safety_configs", "wrong_safety_model", "gen1_safety_param", "gen3_flags",
   "gen2_platform_outside_initial_admission", "gen1_platform", "wrong_brand"))
 def test_gen2_configuration_rejects_excluded_configurations(change):
   cp = make_cp()
-  if change == "manual_transmission":
-    cp.transmissionType = structs.CarParams.TransmissionType.manual
-  elif change == "unknown_transmission":
+  if change == "unknown_transmission":
     cp.transmissionType = structs.CarParams.TransmissionType.unknown
   elif change == "direct_transmission":
     cp.transmissionType = structs.CarParams.TransmissionType.direct

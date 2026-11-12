@@ -4,6 +4,8 @@ from opendbc.car import DT_CTRL, structs
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.interfaces import MAX_CTRL_SPEED
 from opendbc.car.toyota.values import ToyotaFlags
+from opendbc.car.common.conversions import Conversions as CV
+from opendbc.car.mazda.values import TI2_FIRST_CONTACT_SPEED_MPH
 
 from openpilot.selfdrive.selfdrived.events import Events
 
@@ -34,6 +36,9 @@ class CarEvents:
     mazda_ti2 = CP.brand == 'mazda' and bool(int(CP.flags) & int(MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3))
     self.ti2_startup_frames = 0
     self.ti2_startup_over = not mazda_ti2
+    # The controller sends the TI2 nothing until the car first reaches this speed, so the
+    # start-up fault lasts until then; keep the alert temporary for that whole wait.
+    self.ti2_contacted = not mazda_ti2 or TI2_FIRST_CONTACT_SPEED_MPH <= 0
 
   def _ti2_startup(self, CS) -> bool:
     """Mazda TI2 power-up: a steering fault present from the first valid sample.
@@ -48,6 +53,10 @@ class CarEvents:
     """
     if self.ti2_startup_over:
       return False
+    if not self.ti2_contacted:
+      if CS.vEgo < TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS:
+        return CS.steerFaultPermanent  # still waiting for first contact: no timer, no early end
+      self.ti2_contacted = True
     if (CS.canValid and not CS.steerFaultPermanent or CS.cruiseState.enabled or
         self.ti2_startup_frames >= int(TI2_STARTUP_SECONDS / DT_CTRL)):
       self.ti2_startup_over = True

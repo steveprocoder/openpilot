@@ -4,7 +4,8 @@ from opendbc.car.lateral import apply_driver_steer_torque_limits
 from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.mazda import mazdacan
 from opendbc.car.mazda.stock_aol import gen2_qualified
-from opendbc.car.mazda.values import CarControllerParams, Buttons, MazdaSafetyFlags
+from opendbc.car.common.conversions import Conversions as CV
+from opendbc.car.mazda.values import CarControllerParams, Buttons, MazdaSafetyFlags, TI2_FIRST_CONTACT_SPEED_MPH
 from openpilot.common.realtime import DT_CTRL
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.params import Params
@@ -17,6 +18,8 @@ class CarController(CarControllerBase):
     super().__init__(dbc_names, CP)
     self.apply_torque_last = 0
     self.ti_apply_torque_last = 0
+    self.ti2_contacted = TI2_FIRST_CONTACT_SPEED_MPH <= 0
+    self.ti2_power_cycles_seen = 0
     self.packer = CANPacker(dbc_names[Bus.pt])
     self.brake_counter = 0
     self.ccp = CarControllerParams(CP)
@@ -42,10 +45,23 @@ class CarController(CarControllerBase):
     apply_torque = 0
     ti_apply_torque = 0
 
+    # TI2 first contact: say nothing to the TI2 after each power-up until the car first
+    # reaches TI2_FIRST_CONTACT_SPEED_MPH (values.py). A TI2 power cycle reported by
+    # CarState (engine restarted while the comma stayed on) re-arms the wait.
+    ti2_car = bool(self.CP.flags & (MazdaSafetyFlags.GEN2 | MazdaSafetyFlags.GEN3))
+    if ti2_car:
+      power_cycles = getattr(CS, "ti2_power_cycles", 0)
+      if power_cycles != self.ti2_power_cycles_seen:
+        self.ti2_power_cycles_seen = power_cycles
+        self.ti2_contacted = TI2_FIRST_CONTACT_SPEED_MPH <= 0
+      if not self.ti2_contacted and CS.out.vEgo >= TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS:
+        self.ti2_contacted = True
+    ti2_silent = ti2_car and not self.ti2_contacted
+
     # Under the GEN2 AOL policy panda refuses nonzero torque while stopped, and the host
     # only hears of it about 60 ms later through latActive. The TI2 pauses for 10 s when
     # 0x249 stops for about 50 ms, so release in this frame: panda always accepts zero.
-    steer_requested = CC.latActive and not (CS.out.standstill and gen2_qualified(self.CP, marked_only=True))
+    steer_requested = CC.latActive and not ti2_silent and not (CS.out.standstill and gen2_qualified(self.CP, marked_only=True))
 
     if CC.latActive:
       # calculate steer and also set limits due to driver torque
@@ -182,10 +198,11 @@ class CarController(CarControllerBase):
           can_sends.append(mazdacan.create_acc_passthrough(self.packer, CS.acc))
 
 
-    # send steering command
-    can_sends.extend(mazdacan.create_steering_control(
-      self.packer, self.CP, self.frame, apply_torque, CS.cam_lkas,
-      ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None))
+    # send steering command (nothing to the TI2 before first contact)
+    if not ti2_silent:
+      can_sends.extend(mazdacan.create_steering_control(
+        self.packer, self.CP, self.frame, apply_torque, CS.cam_lkas,
+        ti_apply_torque if self.CP.flags & MazdaSafetyFlags.TORQUE_INTERCEPTOR else None))
     if _projection is not None and len(can_sends) > 0:
       # only an actual steering packet counts as steering evidence (a trailing
       # cruise-button or HUD packet must not be mislabeled as such)

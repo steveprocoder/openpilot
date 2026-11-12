@@ -73,6 +73,11 @@ class CarState(CarStateBase):
     self.ti2_pause_clean_frames = TI2_HEALTH.RECOVERY_FRAMES
     self.ti2_release_ns = 0            # frame time at which panda restores lateral
     self.ti2_last_frame_ns = 0
+    # Rising edges of TI2 power-cycle evidence (feedback silence, a CPU not in RUN, or any
+    # violation other than 0x02, such as the 0x13 reset code at power-up). The controller uses
+    # it to wait for first contact again after an engine restart while the comma stays on.
+    self.ti2_power_cycles = 0
+    self._ti2_restart_like = False
 
     self._prev_steering_angle = 0
 
@@ -308,6 +313,11 @@ class CarState(CarStateBase):
     self.ti2_pause_clean_frames = TI2_HEALTH.RECOVERY_FRAMES
     self.ti2_release_ns = 0
 
+  def _ti2_mark_restart(self, restart_like):
+    if restart_like and not self._ti2_restart_like:
+      self.ti2_power_cycles += 1
+    self._ti2_restart_like = restart_like
+
   def _update_ti2(self, cp_body):
     """Advance the TI2 health model over every 0x24B frame in this update.
 
@@ -323,6 +333,7 @@ class CarState(CarStateBase):
       # every update: silence past the timeout is a fault and a latch.
       if self.ti2_last_frame_ns and cp_body._last_update_nanos - self.ti2_last_frame_ns > TI2_HEALTH.FEEDBACK_TIMEOUT_NS:
         self._ti2_hard_fault()
+        self._ti2_mark_restart(True)
       return
     timestamps = list(cp_body.message_states[0x24B].timestamps)
     # More frames in one update than the parser keeps timestamps for (a backlog or a replay batch): the
@@ -336,12 +347,14 @@ class CarState(CarStateBase):
       ts = timestamps[i - first]
       if self.ti2_last_frame_ns and ts - self.ti2_last_frame_ns > TI2_HEALTH.FEEDBACK_TIMEOUT_NS:
         self._ti2_hard_fault()  # panda: stale feedback is a fault and a latch
+        self._ti2_mark_restart(True)
       self.ti2_last_frame_ns = ts
 
       viols = [int(frames[f"CPU_{cpu}_VIOL"][i]) for cpu in range(4)]
       states_ok = all(int(frames[f"CPU_{cpu}_STATE"][i]) == TI_STATE.RUN for cpu in range(4))
       violation = any(viols)
       only_transient = violation and all(v in (0, TI2_HEALTH.VIOL_TRANSIENT) for v in viols)
+      self._ti2_mark_restart(not states_ok or (violation and not only_transient))
       paused = self.ti2_pause or self.ti2_pause_clean_frames < TI2_HEALTH.RECOVERY_FRAMES
       # panda: pause_eligible = mazda_ti_pause || !mazda_ti_unhealthy()
       eligible = self.ti2_pause or (self.ti2_clean_frames >= TI2_HEALTH.RECOVERY_FRAMES and not self.ti2_hard_fault)
