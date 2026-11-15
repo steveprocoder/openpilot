@@ -8,6 +8,8 @@ from opendbc.car.mazda.values import CAR, DBC, GEN2_STEER_RELEASE_SPEED_RAW, LKA
                                      CarControllerParams
 from opendbc.car.mazda.stock_aol import admitted as aol_admitted
 
+GearShifter = structs.CarState.GearShifter
+
 ButtonType = structs.CarState.ButtonEvent.Type
 
 DASHBOARD_CARS = frozenset(CAR)
@@ -262,7 +264,15 @@ class CarState(CarStateBase):
                                                                       cp.vl["BLINK_INFO"]["RIGHT_BLINK"] == 1)
     ret.steeringPressed = self._gen2_steering_pressed(ret)
 
-    ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
+    if self.CP.flags & MazdaSafetyFlags.MANUAL_TRANSMISSION:
+      # MANUAL_GEAR GEAR: 0 = neutral (also seen for a moment during every gear change), 1 = in a
+      # forward gear, 2 = reverse. The DBC labels 0 as "P", which made a stop in neutral or a
+      # shift look like Park and withdrew AOL. A manual car has no Park, and steering does not
+      # depend on the drivetrain, so neutral counts as Drive; only reverse is reported as such.
+      # Panda applies the same rule to its gear source (mazda_stock_aol.h, MANUAL_GEAR).
+      ret.gearShifter = {0: GearShifter.drive, 1: GearShifter.drive, 2: GearShifter.reverse}.get(can_gear, GearShifter.unknown)
+    else:
+      ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(can_gear, None))
     ret.gasPressed = cp_cam.vl["ENGINE_DATA"]["PEDAL_GAS"] > 0
     ret.seatbeltUnlatched = False # Cruise will not engage if seatbelt is unlatched (handled by car)
     ret.doorOpen = False # Cruise will not engage if door is open (handled by car)

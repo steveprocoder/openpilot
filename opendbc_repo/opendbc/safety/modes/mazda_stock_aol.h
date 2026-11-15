@@ -130,12 +130,15 @@ static void mazda_aol_optional_rx(const CANPacket_t *msg) {
     // GEN2/GEN3 manual transmissions send no GEAR (0x228). Their MANUAL_GEAR (0x219)
     // arrives on the camera bus; GEAR is 33|2@0+ in mazda_2019.dbc, i.e. byte 4
     // bits 0..1, with VAL 0 = neutral, 1 = in a forward gear, 2 = reverse.
+    // Neutral counts as forward: it is how a manual car stops, and it also shows for a
+    // moment during every gear change. Steering does not depend on the drivetrain, so only
+    // reverse (and the undefined value 3) withdraws the source. CarState mirrors this.
     const bool manual_gear_msg = (mazda_gen2 || mazda_gen3) && msg_matches(msg, 0x219U, 2U, 8U);
     if (manual_gear_msg) {
       mazda_aol_seen |= 2U;
       mazda_aol_gear_ts = now;
       const uint8_t manual_gear = msg->data[4] & 0x3U;
-      mazda_aol_sources = (mazda_aol_sources & 6U) | ((manual_gear == 1U) ? 1U : 0U);
+      mazda_aol_sources = (mazda_aol_sources & 6U) | ((manual_gear <= 1U) ? 1U : 0U);
     } else if (gear_msg) {
       mazda_aol_seen |= 2U;
       mazda_aol_gear_ts = now;
