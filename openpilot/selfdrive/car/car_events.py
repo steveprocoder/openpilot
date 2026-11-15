@@ -39,6 +39,9 @@ class CarEvents:
     # The controller sends the TI2 nothing until the car first reaches this speed, so the
     # start-up fault lasts until then; keep the alert temporary for that whole wait.
     self.ti2_contacted = not mazda_ti2 or TI2_FIRST_CONTACT_SPEED_MPH <= 0
+    # Small on-screen notice from start-up until the TI2 reports healthy after first contact.
+    self.ti2_notice_pending = mazda_ti2 and TI2_FIRST_CONTACT_SPEED_MPH > 0
+    self.ti2_notice_contacted = False
 
   def _ti2_startup(self, CS) -> bool:
     """Mazda TI2 power-up: a steering fault present from the first valid sample.
@@ -230,6 +233,13 @@ class CarEvents:
       self.silent_steer_warning = False
     # The fault itself is unchanged (arming stays refused); see _ti2_startup.
     ti2_startup = self._ti2_startup(CS)
+    if self.ti2_notice_pending:
+      if not self.ti2_notice_contacted and CS.vEgo >= TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS:
+        self.ti2_notice_contacted = True
+      if self.ti2_notice_contacted and CS.canValid and not CS.steerFaultPermanent:
+        self.ti2_notice_pending = False  # TI2 healthy: notice ends for this drive
+      else:
+        events.add(EventName.ti2Connecting if self.ti2_notice_contacted else EventName.ti2WaitingForSpeed)
     if CS.steerFaultPermanent:
       events.add(EventName.steerTempUnavailable if ti2_startup else EventName.steerUnavailable)
 

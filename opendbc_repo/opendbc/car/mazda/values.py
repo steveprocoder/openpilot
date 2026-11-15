@@ -75,7 +75,7 @@ GEN2_STEER_RELEASE_SPEED_RAW = 100
 # nothing until the car first reaches this speed. After that first contact it talks to the TI2
 # normally at any speed, including below this one. Set to 0 to talk from the moment openpilot starts.
 # While waiting, a temporary "steering unavailable" alert shows and lateral control is off.
-TI2_FIRST_CONTACT_SPEED_MPH = 10.
+TI2_FIRST_CONTACT_SPEED_MPH = 20.
 
 
 class TI2_HEALTH:

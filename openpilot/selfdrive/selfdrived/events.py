@@ -243,6 +243,13 @@ def startup_master_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubM
 
   return StartupAlert("WARNING: This branch is not tested", branch, alert_status=AlertStatus.userPrompt)
 
+def ti2_waiting_for_speed_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
+  from opendbc.car.common.conversions import Conversions as CV
+  from opendbc.car.mazda.values import TI2_FIRST_CONTACT_SPEED_MPH
+  speed = get_display_speed(TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS, metric)
+  return NormalPermanentAlert(f"Steering starts above {speed}")
+
+
 def below_engage_speed_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
   return NoEntryAlert(f"Drive above {get_display_speed(CP.minEnableSpeed, metric)} to engage")
 
@@ -1009,6 +1016,15 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
 
   EventName.userBookmark: {
     ET.PERMANENT: NormalPermanentAlert("Bookmark Saved", duration=1.5),
+  },
+
+  # Mazda TI2 first contact (see TI2_FIRST_CONTACT_SPEED_MPH): small grey notices, no sound.
+  EventName.ti2WaitingForSpeed: {
+    ET.PERMANENT: ti2_waiting_for_speed_alert,
+  },
+
+  EventName.ti2Connecting: {
+    ET.PERMANENT: NormalPermanentAlert("Steering connecting to TI2..."),
   },
 
   EventName.userBookmarkNotPaired: {
