@@ -5,7 +5,8 @@ from opendbc.car.interfaces import CarControllerBase
 from opendbc.car.mazda import mazdacan
 from opendbc.car.mazda.stock_aol import gen2_qualified
 from opendbc.car.common.conversions import Conversions as CV
-from opendbc.car.mazda.values import CarControllerParams, Buttons, MazdaSafetyFlags, TI2_FIRST_CONTACT_SPEED_MPH
+from opendbc.car.mazda.values import (CarControllerParams, Buttons, MazdaSafetyFlags, TI2_FIRST_CONTACT_SPEED_MPH,
+                                      TI2_FIRST_CONTACT_MIN_UPTIME_S)
 from openpilot.common.realtime import DT_CTRL
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.params import Params
@@ -18,7 +19,7 @@ class CarController(CarControllerBase):
     super().__init__(dbc_names, CP)
     self.apply_torque_last = 0
     self.ti_apply_torque_last = 0
-    self.ti2_contacted = TI2_FIRST_CONTACT_SPEED_MPH <= 0
+    self.ti2_contacted = TI2_FIRST_CONTACT_SPEED_MPH <= 0 and TI2_FIRST_CONTACT_MIN_UPTIME_S <= 0
     self.ti2_power_cycles_seen = 0
     self.packer = CANPacker(dbc_names[Bus.pt])
     self.brake_counter = 0
@@ -53,8 +54,9 @@ class CarController(CarControllerBase):
       power_cycles = getattr(CS, "ti2_power_cycles", 0)
       if power_cycles != self.ti2_power_cycles_seen:
         self.ti2_power_cycles_seen = power_cycles
-        self.ti2_contacted = TI2_FIRST_CONTACT_SPEED_MPH <= 0
-      if not self.ti2_contacted and CS.out.vEgo >= TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS:
+        self.ti2_contacted = TI2_FIRST_CONTACT_SPEED_MPH <= 0 and TI2_FIRST_CONTACT_MIN_UPTIME_S <= 0
+      if (not self.ti2_contacted and CS.out.vEgo >= TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS and
+          getattr(CS, "ti2_uptime_s", float("inf")) >= TI2_FIRST_CONTACT_MIN_UPTIME_S):
         self.ti2_contacted = True
     ti2_silent = ti2_car and not self.ti2_contacted
 

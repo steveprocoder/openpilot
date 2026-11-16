@@ -1023,6 +1023,10 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
     ET.PERMANENT: ti2_waiting_for_speed_alert,
   },
 
+  EventName.ti2WaitingForStartup: {
+    ET.PERMANENT: NormalPermanentAlert("Steering waiting for TI2 start-up"),
+  },
+
   EventName.ti2Connecting: {
     ET.PERMANENT: NormalPermanentAlert("Steering connecting to TI2..."),
   },

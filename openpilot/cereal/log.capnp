@@ -131,6 +131,7 @@ struct OnroadEvent @0xc4fa6047f024e718 {
     userBookmarkNotPaired @104;
     ti2WaitingForSpeed @105;
     ti2Connecting @106;
+    ti2WaitingForStartup @107;
     excessiveActuation @96;
     bigModelLoading @100;
     bigModelFailed @102;

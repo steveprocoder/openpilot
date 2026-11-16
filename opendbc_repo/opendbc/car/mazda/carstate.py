@@ -82,6 +82,9 @@ class CarState(CarStateBase):
     # violation other than 0x02, such as the 0x13 reset code at power-up). The controller uses
     # it to wait for first contact again after an engine restart while the comma stays on.
     self.ti2_power_cycles = 0
+    # TI2 uptime: from its last power-up code (or first sighting if it was already running).
+    self.ti2_powerup_ns = 0
+    self.ti2_uptime_s = 0.
     self._ti2_restart_like = False
 
     self._prev_steering_angle = 0
@@ -350,6 +353,8 @@ class CarState(CarStateBase):
       if self.ti2_last_frame_ns and cp_body._last_update_nanos - self.ti2_last_frame_ns > TI2_HEALTH.FEEDBACK_TIMEOUT_NS:
         self._ti2_hard_fault()
         self._ti2_mark_restart(True)
+        self.ti2_powerup_ns = 0  # silent: uptime restarts from the next frame
+        self.ti2_uptime_s = 0.
       return
     timestamps = list(cp_body.message_states[0x24B].timestamps)
     # More frames in one update than the parser keeps timestamps for (a backlog or a replay batch): the
@@ -364,13 +369,19 @@ class CarState(CarStateBase):
       if self.ti2_last_frame_ns and ts - self.ti2_last_frame_ns > TI2_HEALTH.FEEDBACK_TIMEOUT_NS:
         self._ti2_hard_fault()  # panda: stale feedback is a fault and a latch
         self._ti2_mark_restart(True)
+        self.ti2_powerup_ns = ts
       self.ti2_last_frame_ns = ts
+      if not self.ti2_powerup_ns:
+        self.ti2_powerup_ns = ts
 
       viols = [int(frames[f"CPU_{cpu}_VIOL"][i]) for cpu in range(4)]
       states_ok = all(int(frames[f"CPU_{cpu}_STATE"][i]) == TI_STATE.RUN for cpu in range(4))
       violation = any(viols)
       only_transient = violation and all(v in (0, TI2_HEALTH.VIOL_TRANSIENT) for v in viols)
-      self._ti2_mark_restart(not states_ok or (violation and not only_transient))
+      restart_like = not states_ok or (violation and not only_transient)
+      self._ti2_mark_restart(restart_like)
+      if restart_like:
+        self.ti2_powerup_ns = ts  # power-up codes (0x01/0x13, CPUs not yet in RUN): uptime starts after them
       paused = self.ti2_pause or self.ti2_pause_clean_frames < TI2_HEALTH.RECOVERY_FRAMES
       # panda: pause_eligible = mazda_ti_pause || !mazda_ti_unhealthy()
       eligible = self.ti2_pause or (self.ti2_clean_frames >= TI2_HEALTH.RECOVERY_FRAMES and not self.ti2_hard_fault)
@@ -395,6 +406,8 @@ class CarState(CarStateBase):
           self.ti2_pause_clean_frames += 1
           if self.ti2_pause_clean_frames == TI2_HEALTH.RECOVERY_FRAMES:
             self.ti2_release_ns = ts  # panda restores lateral on this frame
+
+    self.ti2_uptime_s = (self.ti2_last_frame_ns - self.ti2_powerup_ns) / 1e9 if self.ti2_powerup_ns else 0.
 
     if overflow:
       self._ti2_hard_fault()

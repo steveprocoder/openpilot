@@ -5,7 +5,7 @@ from opendbc.car.car_helpers import interfaces
 from opendbc.car.interfaces import MAX_CTRL_SPEED
 from opendbc.car.toyota.values import ToyotaFlags
 from opendbc.car.common.conversions import Conversions as CV
-from opendbc.car.mazda.values import TI2_FIRST_CONTACT_SPEED_MPH
+from opendbc.car.mazda.values import TI2_FIRST_CONTACT_SPEED_MPH, TI2_FIRST_CONTACT_MIN_UPTIME_S
 
 from openpilot.selfdrive.selfdrived.events import Events
 
@@ -38,10 +38,18 @@ class CarEvents:
     self.ti2_startup_over = not mazda_ti2
     # The controller sends the TI2 nothing until the car first reaches this speed, so the
     # start-up fault lasts until then; keep the alert temporary for that whole wait.
-    self.ti2_contacted = not mazda_ti2 or TI2_FIRST_CONTACT_SPEED_MPH <= 0
+    self.ti2_contacted = not mazda_ti2 or (TI2_FIRST_CONTACT_SPEED_MPH <= 0 and TI2_FIRST_CONTACT_MIN_UPTIME_S <= 0)
+    # Frames since openpilot started: the same basis CarState uses for TI2 uptime (the TI2 powers up
+    # with the car, or was already running when openpilot first saw it).
+    self.ti2_frames = 0
     # Small on-screen notice from start-up until the TI2 reports healthy after first contact.
-    self.ti2_notice_pending = mazda_ti2 and TI2_FIRST_CONTACT_SPEED_MPH > 0
+    self.ti2_notice_pending = mazda_ti2 and (TI2_FIRST_CONTACT_SPEED_MPH > 0 or TI2_FIRST_CONTACT_MIN_UPTIME_S > 0)
     self.ti2_notice_contacted = False
+
+  def _ti2_contact_ready(self, CS) -> bool:
+    """Mirror of the controller's TI2 first-contact gate: speed and TI2 uptime together."""
+    return (CS.vEgo >= TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS and
+            self.ti2_frames * DT_CTRL >= TI2_FIRST_CONTACT_MIN_UPTIME_S)
 
   def _ti2_startup(self, CS) -> bool:
     """Mazda TI2 power-up: a steering fault present from the first valid sample.
@@ -57,7 +65,7 @@ class CarEvents:
     if self.ti2_startup_over:
       return False
     if not self.ti2_contacted:
-      if CS.vEgo < TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS:
+      if not self._ti2_contact_ready(CS):
         return CS.steerFaultPermanent  # still waiting for first contact: no timer, no early end
       self.ti2_contacted = True
     if (CS.canValid and not CS.steerFaultPermanent or CS.cruiseState.enabled or
@@ -232,14 +240,19 @@ class CarEvents:
       self.no_steer_warning = False
       self.silent_steer_warning = False
     # The fault itself is unchanged (arming stays refused); see _ti2_startup.
+    self.ti2_frames += 1
     ti2_startup = self._ti2_startup(CS)
     if self.ti2_notice_pending:
-      if not self.ti2_notice_contacted and CS.vEgo >= TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS:
+      if not self.ti2_notice_contacted and self._ti2_contact_ready(CS):
         self.ti2_notice_contacted = True
       if self.ti2_notice_contacted and CS.canValid and not CS.steerFaultPermanent:
         self.ti2_notice_pending = False  # TI2 healthy: notice ends for this drive
+      elif self.ti2_notice_contacted:
+        events.add(EventName.ti2Connecting)
+      elif CS.vEgo < TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS:
+        events.add(EventName.ti2WaitingForSpeed)
       else:
-        events.add(EventName.ti2Connecting if self.ti2_notice_contacted else EventName.ti2WaitingForSpeed)
+        events.add(EventName.ti2WaitingForStartup)
     if CS.steerFaultPermanent:
       events.add(EventName.steerTempUnavailable if ti2_startup else EventName.steerUnavailable)
 
