@@ -40,6 +40,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"DeveloperUI", {PERSISTENT, BOOL, "0"}},
     {"LatSmoothSeconds", {PERSISTENT, FLOAT}},
     {"SubaruSmoothingContext", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BYTES}},
+    // Mazda TI2: set by the car controller at first contact, read by the on-screen TI2 notices.
+    {"MazdaTi2Contacted", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
     {"SubaruAvhStartup", {PERSISTENT, BOOL, "0"}},
     {"SubaruStopStartOff", {PERSISTENT, BOOL, "0"}},
     {"SubaruSNG", {PERSISTENT, BOOL, "0"}},

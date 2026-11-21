@@ -1,3 +1,4 @@
+import threading
 from opendbc.can import CANPacker
 from opendbc.car import Bus, structs
 from opendbc.car.lateral import apply_driver_steer_torque_limits
@@ -14,6 +15,13 @@ from openpilot.common.params import Params
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
 
+def _publish_ti2_contacted(contacted: bool) -> None:
+  try:
+    Params().put_bool("MazdaTi2Contacted", contacted)
+  except Exception:
+    pass
+
+
 class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
     super().__init__(dbc_names, CP)
@@ -21,6 +29,7 @@ class CarController(CarControllerBase):
     self.ti_apply_torque_last = 0
     self.ti2_contacted = TI2_FIRST_CONTACT_SPEED_MPH <= 0 and TI2_FIRST_CONTACT_MIN_UPTIME_S <= 0
     self.ti2_power_cycles_seen = 0
+    self.ti2_contacted_published = None
     self.packer = CANPacker(dbc_names[Bus.pt])
     self.brake_counter = 0
     self.ccp = CarControllerParams(CP)
@@ -59,6 +68,11 @@ class CarController(CarControllerBase):
           getattr(CS, "ti2_uptime_s", float("inf")) >= TI2_FIRST_CONTACT_MIN_UPTIME_S):
         self.ti2_contacted = True
     ti2_silent = ti2_car and not self.ti2_contacted
+    if ti2_car and self.ti2_contacted != self.ti2_contacted_published:
+      # Tell the on-screen notices (selfdrived) the exact moment of first contact. Written off the
+      # control thread, and only when it changes (a few times per drive at most).
+      self.ti2_contacted_published = self.ti2_contacted
+      threading.Thread(target=_publish_ti2_contacted, args=(self.ti2_contacted,), daemon=True).start()
 
     # Under the GEN2 AOL policy panda refuses nonzero torque while stopped, and the host
     # only hears of it about 60 ms later through latActive. The TI2 pauses for 10 s when

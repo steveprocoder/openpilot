@@ -39,17 +39,23 @@ class CarEvents:
     # The controller sends the TI2 nothing until the car first reaches this speed, so the
     # start-up fault lasts until then; keep the alert temporary for that whole wait.
     self.ti2_contacted = not mazda_ti2 or (TI2_FIRST_CONTACT_SPEED_MPH <= 0 and TI2_FIRST_CONTACT_MIN_UPTIME_S <= 0)
-    # Frames since openpilot started: the same basis CarState uses for TI2 uptime (the TI2 powers up
-    # with the car, or was already running when openpilot first saw it).
+    # First contact is decided by the car controller (speed + TI2 uptime); it publishes the exact
+    # moment in the MazdaTi2Contacted param, read here ten times a second while it matters.
     self.ti2_frames = 0
+    self.ti2_contacted_live = False
     # Small on-screen notice from start-up until the TI2 reports healthy after first contact.
     self.ti2_notice_pending = mazda_ti2 and (TI2_FIRST_CONTACT_SPEED_MPH > 0 or TI2_FIRST_CONTACT_MIN_UPTIME_S > 0)
     self.ti2_notice_contacted = False
 
   def _ti2_contact_ready(self, CS) -> bool:
-    """Mirror of the controller's TI2 first-contact gate: speed and TI2 uptime together."""
-    return (CS.vEgo >= TI2_FIRST_CONTACT_SPEED_MPH * CV.MPH_TO_MS and
-            self.ti2_frames * DT_CTRL >= TI2_FIRST_CONTACT_MIN_UPTIME_S)
+    """True once the car controller has made first contact with the TI2."""
+    if not self.ti2_contacted_live and self.ti2_frames % 10 == 0:
+      try:
+        from openpilot.common.params import Params
+        self.ti2_contacted_live = Params().get_bool("MazdaTi2Contacted")
+      except Exception:
+        self.ti2_contacted_live = False
+    return self.ti2_contacted_live
 
   def _ti2_startup(self, CS) -> bool:
     """Mazda TI2 power-up: a steering fault present from the first valid sample.

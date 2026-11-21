@@ -82,7 +82,7 @@ TI2_FIRST_CONTACT_SPEED_MPH = 20.
 # (and prone to standstill vibration) until power-off; the tell is the TI2 reporting healthy within
 # a few seconds of first contact instead of the usual 6-7 s. Uptime counts from the TI2's power-up
 # codes, or from when openpilot first saw it if it was already running. Set to 0 to disable.
-TI2_FIRST_CONTACT_MIN_UPTIME_S = 60.
+TI2_FIRST_CONTACT_MIN_UPTIME_S = 180.
 
 
 class TI2_HEALTH:
