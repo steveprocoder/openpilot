@@ -82,7 +82,12 @@ TI2_FIRST_CONTACT_SPEED_MPH = 0
 # (and prone to standstill vibration) until power-off; the tell is the TI2 reporting healthy within
 # a few seconds of first contact instead of the usual 6-7 s. Uptime counts from the TI2's power-up
 # codes, or from when openpilot first saw it if it was already running. Set to 0 to disable.
-TI2_FIRST_CONTACT_MIN_UPTIME_S = 0
+TI2_FIRST_CONTACT_MIN_UPTIME_S = 60.
+
+# Value sent in the STEER_FEEL field (bytes 2-3) of every 0x249 command to the TI2. 10000 is what
+# MoreTorque's port and every earlier build sent. MoreTorque's published TI2 message layout has no
+# such field (those bytes are unused, i.e. 0); 0 sends exactly the documented format.
+TI2_STEER_FEEL = 0
 
 
 class TI2_HEALTH:
