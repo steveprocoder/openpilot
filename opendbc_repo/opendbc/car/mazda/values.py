@@ -75,14 +75,14 @@ GEN2_STEER_RELEASE_SPEED_RAW = 100
 # nothing until the car first reaches this speed. After that first contact it talks to the TI2
 # normally at any speed, including below this one. Set to 0 to talk from the moment openpilot starts.
 # While waiting, a temporary "steering unavailable" alert shows and lateral control is off.
-TI2_FIRST_CONTACT_SPEED_MPH = 20.
+TI2_FIRST_CONTACT_SPEED_MPH = 0
 
 # TI2 first contact also waits until the TI2 has been powered for at least this long. Logs showed
 # that a first command arriving just before the TI2's ~50 s start-up phase ends leaves it light
 # (and prone to standstill vibration) until power-off; the tell is the TI2 reporting healthy within
 # a few seconds of first contact instead of the usual 6-7 s. Uptime counts from the TI2's power-up
 # codes, or from when openpilot first saw it if it was already running. Set to 0 to disable.
-TI2_FIRST_CONTACT_MIN_UPTIME_S = 180.
+TI2_FIRST_CONTACT_MIN_UPTIME_S = 0
 
 
 class TI2_HEALTH:
